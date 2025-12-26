@@ -115,17 +115,23 @@ public class LineRenderer3D : MonoBehaviour
         uvs.Dispose();
     }
     void CalculateEdgePoints(){
+        Vector3 edgeRight, edgeUp;
         Vector3 edgeDirection = (nodes[1].position - nodes[0].position).normalized;
-        Vector3 edgeRight = Vector3.Cross(edgeDirection, Vector3.right).normalized;
-        Vector3 edgeUp = Vector3.Cross(edgeDirection, edgeRight).normalized;
+        ComputeBasis(edgeDirection, out edgeRight, out edgeUp);
         nodes[0] = new Point(nodes[0].position, edgeDirection, Vector3.zero, edgeUp, edgeRight, nodes[0].thickness);
         edgeDirection = (nodes[nodes.Length-1].position - nodes[nodes.Length-2].position).normalized;
-        edgeRight = Vector3.Cross(edgeDirection, Vector3.right).normalized;
-        edgeUp = Vector3.Cross(edgeDirection, edgeRight).normalized;
+        ComputeBasis(edgeDirection, out edgeRight, out edgeUp);
         nodes[nodes.Length-1] = new Point(nodes[nodes.Length-1].position, edgeDirection, Vector3.zero, edgeUp, edgeRight, nodes[nodes.Length-1].thickness); 
     }
-
-     ///<summary> initialize renderer with set amount of empty points </summary>
+    
+    /// <summary>Unified secure computing right/up method </summary>
+    static void ComputeBasis(Vector3 direction, out Vector3 right, out Vector3 up)
+    {
+        Vector3 reference = Mathf.Abs(Vector3.Dot(direction, Vector3.up)) < 0.99f ? Vector3.up : Vector3.forward;
+        right = Vector3.Cross(reference, direction).normalized;
+        up = Vector3.Cross(direction, right).normalized;
+    }
+    ///<summary> initialize renderer with set amount of empty points </summary>
     public void SetPositions(int positionCount){
         points.Clear();
         Point p = new Point(Vector3.zero, 0);
@@ -227,11 +233,7 @@ public class LineRenderer3D : MonoBehaviour
             Vector3 next = (nodes[i+1].position - nodes[i].position).normalized;
             Vector3 direction = Vector3.Lerp(previous, next, 0.5f).normalized;
             Vector3 normal = (next - previous).normalized * Mathf.Abs(Vector3.Dot(previous, direction)); //length encodes cosine of angle   
-            Vector3 right = Vector3.Cross(direction, Vector3.right).normalized;
-            if(right.magnitude < 0.05f){
-                right = Vector3.Cross(direction, Vector3.forward).normalized;
-            }
-            Vector3 up = Vector3.Cross(direction, right).normalized;
+            ComputeBasis(direction, out Vector3 right, out Vector3 up);
             nodes[i] = new Point(nodes[i].position, direction, normal, up, right, nodes[i].thickness);
         }
     }
