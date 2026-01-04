@@ -27,6 +27,7 @@ public class LineRenderer3D : MonoBehaviour
     JobHandle jobHandle;
     JobHandle pointsJobHandle;
     JobHandle rotationJobHandle;
+    NativeArray<float> distances; // 每个点的累计长度
     void Awake(){
         meshRenderer = gameObject.AddComponent<MeshRenderer>();
         meshRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
@@ -55,6 +56,17 @@ public class LineRenderer3D : MonoBehaviour
             CompleteGeneration();
             autoComplete = false;
         }
+    }
+    void OnDestroy()
+    {
+        if (vertices.IsCreated) vertices.Dispose();
+        if (indices.IsCreated) indices.Dispose();
+        if (nodes.IsCreated) nodes.Dispose();
+        if (sines.IsCreated) sines.Dispose();
+        if (cosines.IsCreated) cosines.Dispose();
+        if (normals.IsCreated) normals.Dispose();
+        if (uvs.IsCreated) uvs.Dispose();
+        if (distances.IsCreated) distances.Dispose();
     }
     public void BeginGenerationAutoComplete(){
         BeginGeneration();
@@ -107,6 +119,16 @@ public class LineRenderer3D : MonoBehaviour
         };
         rotationJobHandle = rotationJob.Schedule();
         rotationJobHandle.Complete(); //uses job only to utilize burst system for better performance
+
+        distances = new NativeArray<float>(points.Count, Allocator.TempJob);
+        distances[0] = 0f;
+        for (int i = 1; i < points.Count; i++)
+        {
+            distances[i] =
+                distances[i - 1] +
+                Vector3.Distance(nodes[i].position, nodes[i - 1].position);
+        }
+
         var meshJob = new Line3D() {
             resolution = resolution,
             indices = indices,
@@ -117,6 +139,7 @@ public class LineRenderer3D : MonoBehaviour
             normals = normals,
             uvs = uvs,
             iterations = points.Count,
+            distances = distances,   // 新增
         };
         jobHandle = meshJob.Schedule(points.Count, 16);
         JobHandle.ScheduleBatchedJobs();
@@ -170,6 +193,7 @@ public class LineRenderer3D : MonoBehaviour
         mesh.SetIndices(indices, MeshTopology.Triangles, 0);
         mesh.SetNormals(normals);
         mesh.SetUVs(0, uvs);
+        mesh.RecalculateBounds();//未设置 Bounds → 视锥裁剪错误,管子可能“消失”
 
         vertices.Dispose();
         indices.Dispose();
@@ -268,7 +292,7 @@ public class LineRenderer3D : MonoBehaviour
         [ReadOnly] public NativeArray<Point> nodes;
         [ReadOnly] public NativeArray<float> sines;
         [ReadOnly] public NativeArray<float> cosines;
-        [WriteOnly] private float distance;
+        [ReadOnly] public NativeArray<float> distances; // 只读
         //[NativeDisableParallelForRestriction] is unsafe and can cause race conditions,
         //but in this case each job works on n=resolution vertices so it's not an issue
         //look at it like at a 2d array of size Points x resolution
@@ -280,7 +304,7 @@ public class LineRenderer3D : MonoBehaviour
         public void Execute(int i) {
             Vector3 right = nodes[i].right.normalized * nodes[i].thickness;
             Vector3 up = nodes[i].up.normalized * nodes[i].thickness;
-            distance = i == 0 ? 0f : distance + Vector3.Distance(nodes[i].position, nodes[i - 1].position);
+            float distance = distances[i]; // 安全
             for (int j = 0; j < resolution; j++){
                 vertices[i * resolution + j] = nodes[i].position;
                 Vector3 vertexOffset = cosines[j] * right + sines[j] * up;
@@ -302,7 +326,7 @@ public class LineRenderer3D : MonoBehaviour
     [BurstCompile] public struct CalculatePointData : IJobParallelFor{
         [NativeDisableParallelForRestriction] public NativeArray<Point> nodes;
         public void Execute(int i){
-            if (i == 0) return;
+            if (i <= 0 || i >= nodes.Length - 1) return;
             Vector3 previous = (nodes[i].position - nodes[i-1].position).normalized;
             Vector3 next = (nodes[i+1].position - nodes[i].position).normalized;
             Vector3 direction = Vector3.Lerp(previous, next, 0.5f).normalized;
