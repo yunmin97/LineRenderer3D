@@ -29,6 +29,7 @@ public class LineRenderer3D : MonoBehaviour
     JobHandle rotationJobHandle;
     void Awake(){
         meshRenderer = gameObject.AddComponent<MeshRenderer>();
+        meshRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
         meshRenderer.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.BlendProbes;
         meshFilter = gameObject.AddComponent<MeshFilter>();
         meshFilter.sharedMesh = new Mesh();
@@ -41,10 +42,15 @@ public class LineRenderer3D : MonoBehaviour
     }
     void Update()
     {
-        if(autoUpdate) BeginGeneration();
+        if (autoUpdate && points.Count > 1)
+            BeginGeneration();
     }
     void LateUpdate(){
-        if(autoUpdate) CompleteGeneration();
+        if (points.Count <= 1)
+            return;
+
+        if (autoUpdate) 
+            CompleteGeneration();
         else if(autoComplete){
             CompleteGeneration();
             autoComplete = false;
@@ -55,10 +61,27 @@ public class LineRenderer3D : MonoBehaviour
         autoComplete = true;
     }
     public void BeginGeneration(){
-        vertices = new NativeArray<Vector3>(points.Count * resolution, Allocator.TempJob);
-        normals = new NativeArray<Vector3>(points.Count * resolution, Allocator.TempJob);
-        uvs = new NativeArray<Vector2>(points.Count * resolution, Allocator.TempJob);
-        indices = new NativeArray<int>(points.Count * resolution * 6 - resolution * 6, Allocator.TempJob);
+        if (points == null || points.Count <= 1)
+        {
+            // 确保不显示残留网格
+            if (mesh != null)
+                mesh.Clear();
+            return;
+        }
+
+        int ringVertexCount = points.Count * resolution;
+        int capVertexCount = 2; // 头 + 尾
+
+        vertices = new NativeArray<Vector3>(ringVertexCount + capVertexCount, Allocator.TempJob);
+        normals = new NativeArray<Vector3>(ringVertexCount + capVertexCount, Allocator.TempJob);
+        uvs = new NativeArray<Vector2>(ringVertexCount + capVertexCount, Allocator.TempJob);
+
+        // 原有管子三角 + 头尾端盖三角
+        int tubeIndexCount = (points.Count - 1) * resolution * 6;
+        int capIndexCount = resolution * 3 * 2;
+
+        indices = new NativeArray<int>(tubeIndexCount + capIndexCount, Allocator.TempJob);
+
         nodes = new NativeArray<Point>(points.Count, Allocator.TempJob);
         sines = new NativeArray<float>(resolution, Allocator.TempJob);
         cosines = new NativeArray<float>(resolution, Allocator.TempJob);
@@ -99,7 +122,49 @@ public class LineRenderer3D : MonoBehaviour
         JobHandle.ScheduleBatchedJobs();
     }
     public void CompleteGeneration(){
+        if (!jobHandle.IsCompleted || points.Count <= 1)
+            return;
+
         jobHandle.Complete();
+
+        int ringVertexCount = points.Count * resolution;
+        int headCenterIndex = ringVertexCount;
+        int tailCenterIndex = ringVertexCount + 1;
+
+        // ===== 头部中心点 =====
+        vertices[headCenterIndex] = nodes[0].position;
+        normals[headCenterIndex] = -nodes[0].direction.normalized;
+        uvs[headCenterIndex] = new Vector2(0, 0.5f);
+
+        // ===== 尾部中心点 =====
+        vertices[tailCenterIndex] = nodes[nodes.Length - 1].position;
+        normals[tailCenterIndex] = nodes[nodes.Length - 1].direction.normalized;
+        uvs[tailCenterIndex] = new Vector2(1, 0.5f);
+
+        int indexOffset = (points.Count - 1) * resolution * 6;
+
+        // ===== 头部端盖（反向，朝外）=====
+        for (int j = 0; j < resolution; j++)
+        {
+            int next = (j + 1) % resolution;
+
+            indices[indexOffset++] = headCenterIndex;
+            indices[indexOffset++] = next;
+            indices[indexOffset++] = j;
+        }
+
+        // ===== 尾部端盖（正向）=====
+        int baseRing = (points.Count - 1) * resolution;
+
+        for (int j = 0; j < resolution; j++)
+        {
+            int next = (j + 1) % resolution;
+
+            indices[indexOffset++] = tailCenterIndex;
+            indices[indexOffset++] = baseRing + j;
+            indices[indexOffset++] = baseRing + next;
+        }
+
         mesh.Clear();
         mesh.SetVertices(vertices);
         mesh.SetIndices(indices, MeshTopology.Triangles, 0);
@@ -123,7 +188,7 @@ public class LineRenderer3D : MonoBehaviour
         ComputeBasis(edgeDirection, out edgeRight, out edgeUp);
         nodes[nodes.Length-1] = new Point(nodes[nodes.Length-1].position, edgeDirection, Vector3.zero, edgeUp, edgeRight, nodes[nodes.Length-1].thickness); 
     }
-    
+
     /// <summary>Unified secure computing right/up method </summary>
     static void ComputeBasis(Vector3 direction, out Vector3 right, out Vector3 up)
     {
@@ -155,6 +220,15 @@ public class LineRenderer3D : MonoBehaviour
     public void SetPoints(Vector3[] positions, float thickness){
         points = positions.Select(position => new Point(position, thickness)).ToList();
     }
+    public void SetPoints(List<Vector3> positions, float thickness)
+    {
+        points = positions.Select(position => new Point(position, thickness)).ToList();
+    }
+    public void SetPoints(List<Point> positions)
+    {
+        points = positions;
+    }
+
     ///<summary> set points to an array of vector3 and float (thickness) </summary>
     public void SetPoints(Vector3[] positions, float[] thicknesses){
         points = positions.Zip(thicknesses, (position, thickness) => new Point(position, thickness)).ToList();
