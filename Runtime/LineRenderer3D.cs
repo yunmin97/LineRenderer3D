@@ -253,6 +253,13 @@ public class LineRenderer3D : MonoBehaviour
         points = positions;
     }
 
+    ///<summary> update material of the mesh </summary>
+    public void SetMaterial(Material material)
+    {
+        this.material = material;
+        this.meshRenderer.sharedMaterial = material;
+    }
+
     ///<summary> set points to an array of vector3 and float (thickness) </summary>
     public void SetPoints(Vector3[] positions, float[] thicknesses){
         points = positions.Zip(thicknesses, (position, thickness) => new Point(position, thickness)).ToList();
@@ -302,8 +309,15 @@ public class LineRenderer3D : MonoBehaviour
         [NativeDisableParallelForRestriction] public NativeArray<Vector3> normals;
         [NativeDisableParallelForRestriction] public NativeArray<Vector2> uvs;
         public void Execute(int i) {
-            Vector3 right = nodes[i].right.normalized * nodes[i].thickness;
-            Vector3 up = nodes[i].up.normalized * nodes[i].thickness;
+            //双重验证，防止两端变成点
+            Vector3 right = nodes[i].right;
+            Vector3 up = nodes[i].up;
+            if (right.sqrMagnitude < 1e-6f || up.sqrMagnitude < 1e-6f)
+                ComputeBasis(nodes[i].direction.normalized, out right, out up);
+            right *= nodes[i].thickness;
+            up *= nodes[i].thickness;
+            //Vector3 right = nodes[i].right.normalized * nodes[i].thickness;
+            //Vector3 up = nodes[i].up.normalized * nodes[i].thickness;
             float distance = distances[i]; // 安全
             for (int j = 0; j < resolution; j++){
                 vertices[i * resolution + j] = nodes[i].position;
