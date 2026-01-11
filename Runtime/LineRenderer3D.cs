@@ -59,6 +59,15 @@ public class LineRenderer3D : MonoBehaviour
     }
     void OnDestroy()
     {
+        CompleteAndDisposeJobs();
+    }
+
+    void CompleteAndDisposeJobs()
+    {
+        jobHandle.Complete();
+        pointsJobHandle.Complete();
+        rotationJobHandle.Complete();
+
         if (vertices.IsCreated) vertices.Dispose();
         if (indices.IsCreated) indices.Dispose();
         if (nodes.IsCreated) nodes.Dispose();
@@ -73,6 +82,8 @@ public class LineRenderer3D : MonoBehaviour
         autoComplete = true;
     }
     public void BeginGeneration(){
+        CompleteAndDisposeJobs();
+
         if (points == null || points.Count <= 1)
         {
             // 确保不显示残留网格
