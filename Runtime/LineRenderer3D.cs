@@ -68,14 +68,22 @@ public class LineRenderer3D : MonoBehaviour
         pointsJobHandle.Complete();
         rotationJobHandle.Complete();
 
-        if (vertices.IsCreated) vertices.Dispose();
-        if (indices.IsCreated) indices.Dispose();
-        if (nodes.IsCreated) nodes.Dispose();
-        if (sines.IsCreated) sines.Dispose();
-        if (cosines.IsCreated) cosines.Dispose();
-        if (normals.IsCreated) normals.Dispose();
-        if (uvs.IsCreated) uvs.Dispose();
-        if (distances.IsCreated) distances.Dispose();
+        DisposeIfCreated(ref vertices);
+        DisposeIfCreated(ref indices);
+        DisposeIfCreated(ref nodes);
+        DisposeIfCreated(ref normals);
+        DisposeIfCreated(ref uvs);
+        DisposeIfCreated(ref sines);
+        DisposeIfCreated(ref cosines);
+        DisposeIfCreated(ref distances);
+    }
+    static void DisposeIfCreated<T>(ref NativeArray<T> arr) where T : struct
+    {
+        if (arr.IsCreated)
+        {
+            arr.Dispose();
+            arr = default;
+        }
     }
     public void BeginGenerationAutoComplete(){
         BeginGeneration();
@@ -95,19 +103,19 @@ public class LineRenderer3D : MonoBehaviour
         int ringVertexCount = points.Count * resolution;
         int capVertexCount = 2; // 头 + 尾
 
-        vertices = new NativeArray<Vector3>(ringVertexCount + capVertexCount, Allocator.TempJob);
-        normals = new NativeArray<Vector3>(ringVertexCount + capVertexCount, Allocator.TempJob);
-        uvs = new NativeArray<Vector2>(ringVertexCount + capVertexCount, Allocator.TempJob);
+        vertices = new NativeArray<Vector3>(ringVertexCount + capVertexCount, Allocator.Persistent);
+        normals = new NativeArray<Vector3>(ringVertexCount + capVertexCount, Allocator.Persistent);
+        uvs = new NativeArray<Vector2>(ringVertexCount + capVertexCount, Allocator.Persistent);
 
         // 原有管子三角 + 头尾端盖三角
         int tubeIndexCount = (points.Count - 1) * resolution * 6;
         int capIndexCount = resolution * 3 * 2;
 
-        indices = new NativeArray<int>(tubeIndexCount + capIndexCount, Allocator.TempJob);
+        indices = new NativeArray<int>(tubeIndexCount + capIndexCount, Allocator.Persistent);
 
-        nodes = new NativeArray<Point>(points.Count, Allocator.TempJob);
-        sines = new NativeArray<float>(resolution, Allocator.TempJob);
-        cosines = new NativeArray<float>(resolution, Allocator.TempJob);
+        nodes = new NativeArray<Point>(points.Count, Allocator.Persistent);
+        sines = new NativeArray<float>(resolution, Allocator.Persistent);
+        cosines = new NativeArray<float>(resolution, Allocator.Persistent);
         for(int i = 0; i < points.Count; i++){
             nodes[i] = points[i];
         }
@@ -131,7 +139,7 @@ public class LineRenderer3D : MonoBehaviour
         rotationJobHandle = rotationJob.Schedule();
         rotationJobHandle.Complete(); //uses job only to utilize burst system for better performance
 
-        distances = new NativeArray<float>(points.Count, Allocator.TempJob);
+        distances = new NativeArray<float>(points.Count, Allocator.Persistent);
         distances[0] = 0f;
         for (int i = 1; i < points.Count; i++)
         {
